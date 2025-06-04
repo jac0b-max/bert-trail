@@ -1,0 +1,112 @@
+%%capture captured_output
+!/home/ma-user/anaconda3/bin/conda create -n python-3.9.0 python=3.9.0 -y --override-channels --channel https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+!/home/ma-user/anaconda3/envs/python-3.9.0/bin/pip install ipykernel
+import json
+import os
+
+data = {
+   "display_name": "python-3.9.0",
+   "env": {
+      "PATH": "/home/ma-user/anaconda3/envs/python-3.9.0/bin:/home/ma-user/anaconda3/envs/python-3.7.10/bin:/modelarts/authoring/notebook-conda/bin:/opt/conda/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ma-user/modelarts/ma-cli/bin:/home/ma-user/modelarts/ma-cli/bin"
+   },
+   "language": "python",
+   "argv": [
+      "/home/ma-user/anaconda3/envs/python-3.9.0/bin/python",
+      "-m",
+      "ipykernel",
+      "-f",
+      "{connection_file}"
+   ]
+}
+
+if not os.path.exists("/home/ma-user/anaconda3/share/jupyter/kernels/python-3.9.0/"):
+    os.mkdir("/home/ma-user/anaconda3/share/jupyter/kernels/python-3.9.0/")
+
+with open('/home/ma-user/anaconda3/share/jupyter/kernels/python-3.9.0/kernel.json', 'w') as f:
+    json.dump(data, f, indent=4)
+!pip install https://ms-release.obs.cn-north-4.myhuaweicloud.com/2.2.13/MindSpore/unified/x86_64/mindspore-2.2.13-cp39-cp39-linux_x86_64.whl --trusted-host ms-release.obs.cn-north-4.myhuaweicloud.com -i https://pypi.tuna.tsinghua.edu.cn/simple
+!pip install mindnlp
+!pip install pickle-mixin
+import os
+
+import mindspore
+from mindspore.dataset import text, GeneratorDataset, transforms
+from mindspore import nn, context
+import pickle
+from mindnlp._legacy.engine import Trainer, Evaluator
+from mindnlp._legacy.engine.callbacks import CheckpointCallback, BestModelCallback
+from mindnlp._legacy.metrics import Accuracy
+# prepare dataset
+class SentimentDataset:
+    """Sentiment Dataset"""
+
+    def __init__(self, path):
+        self.path = path
+        self._labels, self._text_a = [], []
+        self._load()
+
+    def _load(self):
+        
+        # 这里修改为自己的数据集，构建自己的数据，从而进行新的训练
+        with open(self.path, "rb") as f:
+            dataset = pickle.load(f)
+        for each in dataset:
+            self._labels.append(each[1])
+            self._text_a.append(each[0])
+
+    def __getitem__(self, index):
+        return self._labels[index], self._text_a[index]
+
+    def __len__(self):
+        return len(self._labels)
+import numpy as np
+
+def process_dataset(source, tokenizer, max_seq_len=64, batch_size=32, shuffle=True):
+    is_ascend = mindspore.get_context('device_target') == 'Ascend'
+
+    column_names = ["label", "text_a"]
+    
+    dataset = GeneratorDataset(source, column_names=column_names, shuffle=shuffle)
+    # transforms
+    type_cast_op = transforms.TypeCast(mindspore.int32)
+    def tokenize_and_pad(text):
+        if is_ascend:
+            tokenized = tokenizer(text, padding='max_length', truncation=True, max_length=max_seq_len)
+        else:
+            tokenized = tokenizer(text)
+        return tokenized['input_ids'], tokenized['attention_mask']
+    # map dataset
+    dataset = dataset.map(operations=tokenize_and_pad, input_columns="text_a", output_columns=['input_ids', 'attention_mask'])
+    dataset = dataset.map(operations=[type_cast_op], input_columns="label", output_columns='labels')
+    # batch dataset
+    if is_ascend:
+        dataset = dataset.batch(batch_size)
+    else:
+        dataset = dataset.padded_batch(batch_size, pad_info={'input_ids': (None, tokenizer.pad_token_id),
+                                                         'attention_mask': (None, 0)})
+
+    return dataset
+from mindnlp.transformers import BertTokenizer
+tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+dataset_train = process_dataset(SentimentDataset("data.pkl"), tokenizer)
+dataset_val = process_dataset(SentimentDataset("data.pkl"), tokenizer)
+dataset_test = process_dataset(SentimentDataset("test_data.pkl"), tokenizer, shuffle=False)
+print(next(dataset_train.create_tuple_iterator()))
+from mindnlp.transformers import BertForSequenceClassification, BertModel
+from mindnlp._legacy.amp import auto_mixed_precision
+
+# set bert config and define parameters for training
+model = BertForSequenceClassification.from_pretrained('bert-base-chinese', num_labels=3)
+model = auto_mixed_precision(model, 'O1')
+
+optimizer = nn.Adam(model.trainable_params(), learning_rate=2e-5)
+metric = Accuracy()
+# define callbacks to save checkpoints
+ckpoint_cb = CheckpointCallback(save_path='checkpoint', ckpt_name='bert_emotect', epochs=1, keep_checkpoint_max=2)
+best_model_cb = BestModelCallback(save_path='checkpoint', ckpt_name='bert_emotect_best', auto_load=True)
+
+trainer = Trainer(network=model, train_dataset=dataset_train,
+                  eval_dataset=dataset_val, metrics=metric,
+                  epochs=5, optimizer=optimizer, callbacks=[ckpoint_cb, best_model_cb])
+# start training
+trainer.run(tgt_columns="labels")
