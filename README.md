@@ -36,7 +36,7 @@
 3. **Classification**: 接入全连接层 (Dense Layer) 并通过 Softmax 归一化，输出 3 类标签的概率分布。
 
 ### 2. 训练配置
-- **优化器**: Adam ($learning\_rate = 2e-5$)
+- **优化器**: Adam
 - **策略**: 混合精度训练 (Mixed Precision `O1`)，提升昇腾硬件上的吞吐量。
 - **早停机制**: 引入 `BestModelCallback`，基于验证集性能自动保存最优权重。
 
@@ -65,7 +65,7 @@
 ### 1. 环境安装
 ```bash
 # 安装 MindSpore (以 x86 2.2.13 为例)
-pip install [https://ms-release.obs.cn-north-4.myhuaweicloud.com/2.2.13/MindSpore/unified/x86_64/mindspore-2.2.13-cp39-cp39-linux_x86_64.whl](https://ms-release.obs.cn-north-4.myhuaweicloud.com/2.2.13/MindSpore/unified/x86_64/mindspore-2.2.13-cp39-cp39-linux_x86_64.whl)
+pip install mindspore==2.7.1 -i https://repo.mindspore.cn/pypi/simple --trusted-host repo.mindspore.cn --extra-index-url https://repo.huaweicloud.com/repository/pypi/simple
 # 安装 NLP 扩展库
 pip install mindnlp pandas scikit-learn# 基于 BERT 的恶意评论实时过滤系统
 ```
@@ -165,8 +165,8 @@ data/
 - 社交媒体平台中的攻击性言论实时过滤
 - 新闻、视频及直播平台的评论安全管控
 - 内容安全与平台合规辅助系统
+- 系统可作为独立模块集成至现有内容发布或审核流程中，实现对恶意评论的实时或准实时检测与拦截，从而有效降低人工审核成本。
 
-系统可作为独立模块集成至现有内容发布或审核流程中，实现对恶意评论的实时或准实时检测与拦截，从而有效降低人工审核成本。
 ---
 
 ## 八、注意事项与局限性
@@ -174,5 +174,4 @@ data/
 - 本项目使用的数据集为 GPT-4 辅助人工标注生成的合成数据（Synthetic Data），不完全等同于真实用户评论分布
 - 模型在真实业务场景中的性能仍需结合真实评论数据进行进一步验证与微调
 - 对于语义高度隐晦或依赖上下文的攻击性言论，模型仍可能存在一定的识别难度
-- 本项目更适合作为课程实验、系统原型或方法验证示例，不直接面向生产环境部署
 
